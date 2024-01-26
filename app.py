@@ -1,25 +1,19 @@
 from os import environ
 from typing import List
 
-import openai
 import psycopg
 from boto3 import Session
 from dotenv import load_dotenv  # type: ignore
 from flask import Flask, jsonify, make_response, render_template, request
+from openai import OpenAI
 from pgvector.psycopg import register_vector
 
 load_dotenv()
 
 
-openai.api_key = environ.get("OPENAI_API_KEY")
+aws = Session()
 
-aws = Session(
-	aws_access_key_id=environ.get("AWS_ACCESS_KEY_ID"),
-	aws_secret_access_key=environ.get("AWS_SECRET_ACCESS_KEY"),
-	region_name="us-east-1"
-)
-
-
+openai = OpenAI(api_key=environ["OPENAI_API_KEY"])
 polly = aws.client("polly")
 
 
@@ -31,7 +25,7 @@ def text_to_speech(text: str) -> bytes:
 	)
 	return response["AudioStream"].read()
 
-conn = psycopg.connect('postgresql://postgres@db:5432/postgres', dbname='postgres', autocommit=True)
+conn = psycopg.connect('postgresql://postgres:postgres@db:5432/postgres', dbname='postgres', autocommit=True)
 
 def on_start():
 	conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
@@ -39,8 +33,8 @@ def on_start():
 	conn.execute('CREATE TABLE IF NOT EXISTS text_embeddings (id bigserial PRIMARY KEY, content text, embedding vector(1536))')
 
 def create_embedding(input: List[str],save:bool=True)->List[List[float]]:
-	response = openai.Embedding.create(input=input,  model='text-embedding-ada-002')
-	embeddings = [v['embedding'] for v in response['data']]
+	response = openai.embeddings.create(input=input,  model='text-embedding-ada-002')
+	embeddings = [v.embedding for v in response.data]
 	if save:
 		for content, embedding in zip(input, embeddings):
 			conn.execute('INSERT INTO text_embeddings (content, embedding) VALUES (%s, %s)', (content, embedding)) # type: ignore
@@ -52,8 +46,8 @@ def similarity_search(text:str, limit: int = 5):
 	return [n[0] for n in neighbors]
 
 def completion(text:str)->str:
-	response = openai.ChatCompletion.create( # type: ignore
-		model="gpt-4-0613",
+	response = openai.chat.completions.create( # type: ignore
+		model="gpt-3.5-turbo",
 		messages=[{
 			"role":"user",
 			"content":text
@@ -79,6 +73,7 @@ def index():
 
 @app.get("/api/chat")
 def chat():
+	on_start()
 	q = request.args.get("q")
 	if not q:
 		return jsonify({"message": "No question provided"}), 400

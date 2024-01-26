@@ -11,11 +11,10 @@ RUN apt-get update && apt-get install -y \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/pgvector/pgvector.git
+RUN cd /tmp && \
+git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git && \
+cd /tmp/pgvector && \
+make && \
+make install 
 
-RUN cd pgvector && make install
-
-RUN echo "shared_preload_libraries = 'pgvector'" >> /usr/share/postgresql/postgresql.conf.sample
-
-
-
+COPY ./pg_hba.conf /var/lib/postgresql/data/pg_hba.conf
